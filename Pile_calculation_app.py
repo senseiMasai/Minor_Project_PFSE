@@ -107,7 +107,7 @@ for pile in piles.values():
 fig.layout.xaxis.scaleanchor = "y"
 fig.layout.xaxis.scaleratio = 1
 fig.layout.xaxis.title = "Transversal X [m]"
-fig.layout.yaxis.title = "Longitudina Y [m]"
+fig.layout.yaxis.title = "Longitudinal Y [m]"
 
 with colLeft:
     st.header("Geometry")

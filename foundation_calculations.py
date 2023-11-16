@@ -27,6 +27,25 @@ class Rebar(Material):
     fy: float
 
 @dataclass
+class Soil:
+    '''
+    Define soil object
+    density: specific weight of soil
+    phi: Internal friction angle of soil
+    c: Cohesion of soil
+    '''
+    density: float
+    phi: float
+    c: float
+    k: float
+    thickness: float
+
+    def CalculateSubgradeModulus(self,k):
+        self.k = k
+        return self.k
+
+
+@dataclass
 class Reaction():
     '''
     N: Axial force in kN

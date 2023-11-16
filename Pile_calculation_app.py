@@ -14,6 +14,8 @@ st.markdown("# Pile Designer - beta version 0.1")
 colSideBar1, colSideBar2 =st.sidebar.columns(2)
 colLeft, colRight = st.columns(2, gap="large")
 
+
+
 # Pilecap geometry information
 with colSideBar1:
     st.header("PILECAP GEOMETRY")
@@ -24,8 +26,8 @@ with colSideBar1:
     pileLength = st.number_input("Pile length",value = 5)
     rows = st.number_input("Number of rows", value =2)
     columns = st.number_input("Number of columns", value =2)
-    Sx = st.number_input("Transversal pile spacing", value =1)
-    Sy = st.number_input("Longitudinal pile spacing", value =1)
+    Sx = st.number_input("Transversal pile spacing", value =2)
+    Sy = st.number_input("Longitudinal pile spacing", value =2)
     if min([cx, cy, h, pileDiameter, rows, columns, Sx, Sy]) < 0: 
         st.error(f"Geometry input values must be positive")
     elif min(Sx,Sy) <= pileDiameter:
@@ -110,21 +112,23 @@ fig.layout.xaxis.title = "Transversal X [m]"
 fig.layout.yaxis.title = "Longitudinal Y [m]"
 
 with colLeft:
-    st.header("Geometry")
-    pileSelectedName = st.selectbox("Select pile", [pile.name for pile in piles.values()])
-    #st.plotly_chart(fig)
-    selectedPile = piles[pileSelectedName]
-    fig.add_shape(showlegend=True,
-        type="circle",
-        xref="x", yref="y",
-        x0=selectedPile.coordinates[0]-selectedPile.diameter/2, y0=selectedPile.coordinates[1]-selectedPile.diameter/2, x1=selectedPile.coordinates[0]+selectedPile.diameter/2, y1=selectedPile.coordinates[1]+selectedPile.diameter/2,
-        name = selectedPile.name,
-        line_width = 2,
-        line_color="Red",
-        #fillcolor="Grey",
-        label = dict(text=f"{selectedPile.name}")
-    )
-    st.plotly_chart(fig)
+    tabGeometry,tabSoil, tabReactions, tabEfforts, tabSection = st.tabs(["Geometry","Soil", "Pîer reactions","Pile efforts","Cross-section design"])
+    with tabGeometry:
+        st.header("Geometry")
+        pileSelectedName = st.selectbox("Select pile", [pile.name for pile in piles.values()])
+        #st.plotly_chart(fig)
+        selectedPile = piles[pileSelectedName]
+        fig.add_shape(showlegend=True,
+            type="circle",
+            xref="x", yref="y",
+            x0=selectedPile.coordinates[0]-selectedPile.diameter/2, y0=selectedPile.coordinates[1]-selectedPile.diameter/2, x1=selectedPile.coordinates[0]+selectedPile.diameter/2, y1=selectedPile.coordinates[1]+selectedPile.diameter/2,
+            name = selectedPile.name,
+            line_width = 2,
+            line_color="Red",
+            #fillcolor="Grey",
+            label = dict(text=f"{selectedPile.name}")
+        )
+        st.plotly_chart(fig)
     pileReactionsToDisplay = { "N [kN]": [round(pile.pileReaction.N,2) for pile in piles.values()],
                               "Vx [kN]": [round(pile.pileReaction.Vx,2) for pile in piles.values()],
                               "Vy [kN]": [round(pile.pileReaction.Vy,2) for pile in piles.values()],
@@ -133,57 +137,57 @@ with colLeft:
     df = pd.DataFrame(pileReactionsToDisplay,index)
     st.dataframe(df,use_container_width=True)
 
-    with colRight:
-        nPoints = 1000
-        pileModel = fc.CalculatePileFEModel(selectedPile,k=k, stepSprings = stepSprings)
- 
-        momentPile = pileModel.Members[selectedPile.name].moment_array(Direction="Mz",n_points=nPoints)
-        shearPile = pileModel.Members[selectedPile.name].shear_array(Direction="Fy",n_points=nPoints)
-        displacementPile = pileModel.Members[selectedPile.name].deflection_array(Direction="dy", n_points=nPoints)
-    
-        figEfforts = make_subplots(rows=1, cols=3,subplot_titles=("MOMENT", "SHEAR", "DISPLACEMENT"), print_grid=True)
-        figPileDisplacement = go.Figure()
-        figEfforts.add_trace(
-            go.Scatter(
-                x = momentPile[1],
-                y = -momentPile[0],
-                line = {"color": "black"},
-                mode = "lines",
-                name="Moment",
-                line_width = 2,
-                showlegend=True
-            ), row=1,col=1
-        ) 
-        figEfforts.add_trace(
-            go.Scatter(
-                x = shearPile[1],
-                y = -shearPile[0],
-                line = {"color": "red"},
-                mode = "lines",
-                name="Shear",
-                line_width = 2,
-                showlegend=True
-            ), row=1,col=2
-        ) 
-        figEfforts.add_trace(
-            go.Scatter(
-                x = 1000*displacementPile[1],
-                y = -displacementPile[0],
-                line = {"color": "blue"},
-                mode = "lines",
-                name="Displacement",
-                line_width = 2,
-                showlegend=True
-            ), row=1,col=3
-        ) 
-        figEfforts.layout.width = 700
-        figEfforts.layout.height = 700
-        figEfforts.layout.yaxis.title = "Pile height [m]"
-        amplification = 1.2
-        figEfforts.update_xaxes(title_text="Moment [kNm]", showgrid =True, range = [amplification*min(momentPile[1]),amplification*max(momentPile[1])], row=1, col=1)
-        figEfforts.update_xaxes(title_text="Shear [kN]", showgrid =True, range = [amplification*min(shearPile[1]),amplification*max(shearPile[1])], row=1, col=2)
-        figEfforts.update_xaxes(title_text="Displacement [mm]", showgrid =True, range = [1000*amplification*min(displacementPile[1]),1000*amplification*max(displacementPile[1])], row=1, col=3)
-        st.plotly_chart(figEfforts)
+with colRight:
+    nPoints = 1000
+    pileModel = fc.CalculatePileFEModel(selectedPile,k=k, stepSprings = stepSprings)
+
+    momentPile = pileModel.Members[selectedPile.name].moment_array(Direction="Mz",n_points=nPoints)
+    shearPile = pileModel.Members[selectedPile.name].shear_array(Direction="Fy",n_points=nPoints)
+    displacementPile = pileModel.Members[selectedPile.name].deflection_array(Direction="dy", n_points=nPoints)
+
+    figEfforts = make_subplots(rows=1, cols=3,subplot_titles=("MOMENT", "SHEAR", "DISPLACEMENT"), print_grid=True)
+    figPileDisplacement = go.Figure()
+    figEfforts.add_trace(
+        go.Scatter(
+            x = momentPile[1],
+            y = -momentPile[0],
+            line = {"color": "black"},
+            mode = "lines",
+            name="Moment",
+            line_width = 2,
+            showlegend=True
+        ), row=1,col=1
+    ) 
+    figEfforts.add_trace(
+        go.Scatter(
+            x = shearPile[1],
+            y = -shearPile[0],
+            line = {"color": "red"},
+            mode = "lines",
+            name="Shear",
+            line_width = 2,
+            showlegend=True
+        ), row=1,col=2
+    ) 
+    figEfforts.add_trace(
+        go.Scatter(
+            x = 1000*displacementPile[1],
+            y = -displacementPile[0],
+            line = {"color": "blue"},
+            mode = "lines",
+            name="Displacement",
+            line_width = 2,
+            showlegend=True
+        ), row=1,col=3
+    ) 
+    figEfforts.layout.width = 700
+    figEfforts.layout.height = 700
+    figEfforts.layout.yaxis.title = "Pile height [m]"
+    amplification = 1.2
+    figEfforts.update_xaxes(title_text="Moment [kNm]", showgrid =True, range = [amplification*min(momentPile[1]),amplification*max(momentPile[1])], row=1, col=1)
+    figEfforts.update_xaxes(title_text="Shear [kN]", showgrid =True, range = [amplification*min(shearPile[1]),amplification*max(shearPile[1])], row=1, col=2)
+    figEfforts.update_xaxes(title_text="Displacement [mm]", showgrid =True, range = [1000*amplification*min(displacementPile[1]),1000*amplification*max(displacementPile[1])], row=1, col=3)
+    st.plotly_chart(figEfforts)
 
 
 

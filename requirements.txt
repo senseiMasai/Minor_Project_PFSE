@@ -1,2 +1,2 @@
 pfse_starterkit
-concreteproperties==0.5.1
+concreteproperties

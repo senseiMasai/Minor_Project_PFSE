@@ -4,6 +4,7 @@ from handcalcs.decorator import handcalc
 from PyNite import FEModel3D
 import pandas as pd
 import math
+import streamlit as st
 
 @dataclass
 class Material:
@@ -13,6 +14,7 @@ class Material:
     name: str
     E: float
     G: float
+    nu: float
     specificWeight: float
 
 @dataclass
@@ -57,6 +59,7 @@ class Reaction():
     Vx: Transversal shear force in kN
     Vy: Longitudinal shear force in kN
     '''
+    combination: str = ""
     N: float=0.0
     Mx: float= 0.0
     My: float= 0.0
@@ -77,10 +80,9 @@ class Pile:
     length: float
     pierReactions: dict[Reaction] = None
     area: float = 0.0
-    pileReactions: list[Reaction] = None
-    concrete: Concrete = Concrete("C25",30000,10000,25,25)
+    pileReactions: dict[Reaction] = None
+    concrete: Concrete = Concrete("C25",30000,10000,0.2,25,25)
     rebars: list[Rebar] = None
-    cover: float = 0.05
 
     def CalculatePileArea(self):
         self.area = np.pi*self.diameter**2/4
@@ -100,7 +102,6 @@ def CalculatePiles(Nx: float, Ny: float, Sx: float, Sy: float, diameter: float, 
                 coordinates = (x,y),
                 diameter = diameter,
                 length = length
-                #pierReaction = pierReactions
             )
             output[pile.name] = pile
             pileCounter += 1
@@ -132,14 +133,14 @@ def CalculateSinglePileReactions(piles: dict[Pile], reactions: dict[Reaction]):
             Ni = A/areaTotal*N - A*yi/denominator2y*Mx + A*xi/denominator2x*My
             Vxi = A/areaTotal*Vx - yi*A**2/denominator3*T
             Vyi = A/areaTotal*Vy + xi*A**2/denominator3*T
-            combosPerPile[comboName] = Reaction(N = Ni, Vx = Vxi, Vy = Vyi)
+            combosPerPile[comboName] = Reaction(combination=comboName, N = Ni, Vx = Vxi, Vy = Vyi)
     
         pile.pileReactions = combosPerPile
 
 def CalculatePileFEModel(pile: Pile, soil: pd.DataFrame, stepSprings: float)->FEModel3D:
     beam = FEModel3D()
     num_nodes = round(pile.length/stepSprings)+1
-    spacing = pile.length/round(pile.length/stepSprings)
+    spacing = stepSprings
     # Create column "zStart" to make easier the calculus of Kh at each soil layer
     soil["zStart"] = 0
     for idx, row in soil.iterrows():
@@ -147,36 +148,42 @@ def CalculatePileFEModel(pile: Pile, soil: pd.DataFrame, stepSprings: float)->FE
 
     # Generate nodes
     for i in range(num_nodes):
-        z = -i*spacing
-        beam.add_node("N"+str(i+1),0,z,0)
+        y = -i*spacing
+        beam.add_node("N"+str(i+1),X=0,Y=y,Z=0)
         # Add supports to the nodes
         if i==0: # top of the pile 
-            beam.def_support("N"+str(i+1),False,False,True,False,True,True)
+            beam.def_support("N"+str(i+1),support_DX=False,support_DY=False,support_DZ=True,support_RX=False,support_RY=True,support_RZ=True)
         elif i==num_nodes-1: # bottom of the pile
-            beam.def_support("N"+str(i+1),True,True,True,False, False, False)
+            beam.def_support("N"+str(i+1),support_DX=True,support_DY=True,support_DZ=True,support_RX=False,support_RY=False,support_RZ=False)
         else:
             pd.to_numeric(soil["kh"],errors="coerce")
-            maskZ = (soil["zEnd"] <= z) & (soil["zStart"] > z)
+            maskZ = (soil["zEnd"] <= y) & (soil["zStart"] > y)
             k = soil["kh"][maskZ].iloc[0]
             kCalc = k*pile.diameter*stepSprings
             beam.def_support_spring("N"+str(i+1),"DX",kCalc)
 
     # Create pile concrete material, member object and mechanical properties
-    beam.add_material(pile.concrete.name,pile.concrete.E,pile.concrete.G,0.3,pile.concrete.specificWeight)
+    beam.add_material(pile.concrete.name,1000*pile.concrete.E,1000*pile.concrete.G,pile.concrete.nu,pile.concrete.specificWeight)
     I = math.pi*(pile.diameter/2)**4/4
     J = math.pi*(pile.diameter/2)**4/2
     beam.add_member(pile.name,"N1","N"+str(num_nodes),pile.concrete.name,I,I,J,pile.area)
 
     # Generate load combinations
+    firstNodeTag = list(beam.Nodes.keys())[0] # Top pile node (first node created in the FEM model)
+    counter = 1
     for combo, reaction in pile.pileReactions.items():
         if reaction.isCalculated == True:
-            beam.add_load_combo(combo,{"N": 1.0, "V": 1.0})
-            beam.add_node_load("N1","FY",-reaction.N,case="N") # Positive pile effort from "pileReactions" object means compression
+            beam.add_load_combo(combo,{f"N_{counter}": 1.0, f"V_{counter}": 1.0})
+            beam.add_node_load(firstNodeTag,"FY",-reaction.N,case=f"N_{counter}") # Positive pile effort from "pileReactions" object means compression
             V = (reaction.Vx**2 + reaction.Vy**2)**0.5
-            beam.add_node_load("N1","FX",V,case="V")
+            beam.add_node_load(firstNodeTag,"FX",V,case=f"V_{counter}")
+            counter +=1
+
+            # print(f"Combo: {combo}, N = {reaction.N} kN, V = {V} kN")
 
     # Analyze beam
     beam.analyze()
+
     return beam
 
 def ReadExcelPierReactions(fileName: str, directions:dict)->pd.DataFrame:

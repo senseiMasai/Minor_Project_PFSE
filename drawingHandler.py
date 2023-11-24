@@ -4,6 +4,7 @@ import foundation_calculations as fc
 import pandas as pd
 import numpy as np
 from PyNite import FEModel3D
+import streamlit as st
 
 def plotCapPile(piles: dict[fc.Pile], cx: float, cy: float)-> go.Figure:
     pileDiameter = piles["P1"].diameter
@@ -65,18 +66,14 @@ def plotCapPile(piles: dict[fc.Pile], cx: float, cy: float)-> go.Figure:
 
     return fig
 
-def plotPileEffortsSolution(pileModel: FEModel3D, edited_dfSoil: pd.DataFrame, nPoints: int)-> go.Figure:
+def plotPileEffortsSolution(pileModel: FEModel3D, selectedPile: fc.Pile, edited_dfSoil: pd.DataFrame, mrd: dict, edited_dfVerifications: pd.DataFrame, nPoints: int)-> go.Figure:
     
     # Add soil layers to the effort plots
     figEfforts = make_subplots(rows=1, cols=3,subplot_titles=("MOMENT", "SHEAR", "DISPLACEMENT"), print_grid=True)
     maxLimit = 1e10
     minLimit = -maxLimit
     colorSoil= ["cornsilk","goldenrod","darkgoldenrod","plum","violet","purple","darkmagenta"]
-    memberName = list(pileModel.Members)[0]
-    combo1 = list(pileModel.LoadCombos)[0]
-    momentPileArrows = pileModel.Members[memberName].moment_array(Direction="Mz",combo_name=combo1, n_points=nPoints)
-    shearPileArrows = pileModel.Members[memberName].shear_array(Direction="Fy",combo_name=combo1,n_points=nPoints)
-    displacementPileArrows = pileModel.Members[memberName].deflection_array(Direction="dy", combo_name=combo1, n_points=nPoints)
+
     for numberOfPlot in range(3):
         # Soils plot
         for idx in range(len(edited_dfSoil)):
@@ -100,54 +97,39 @@ def plotPileEffortsSolution(pileModel: FEModel3D, edited_dfSoil: pd.DataFrame, n
                 showlegend=True,
                 row=1, col=numberOfPlot+1
             )
-        # Arrows plot (annotations)
-        '''
-        listOfArrows = []
-        arrowHorizontal = go.layout.Annotation(dict(
-                    x=max(momentPileArrows[1])/2,
-                    y=0,
-                    xref="x", yref="y",
-                    text="Vxy",
-                    showarrow=True,
-                    axref="x", ayref='y',
-                    ax=0,
-                    ay=0,
-                    arrowhead=3,
-                    arrowwidth=1.5,
-                    arrowcolor='rgb(255,51,0)',)
-        )
-        arrowVertical = go.layout.Annotation(dict(
-                    x=0,
-                    y=0,
-                    xref="x", yref="y",
-                    text="N",
-                    showarrow=True,
-                    axref="x", ayref='y',
-                    ax=0,
-                    ay=1,
-                    arrowhead=3,
-                    arrowwidth=1.5,
-                    arrowcolor='rgb(255,51,0)',)
-        )
-        listOfArrows.append(arrowHorizontal)
-        listOfArrows.append(arrowVertical)
-        '''
 
     # Add moment, shear and displacement solution plot
-    
+    translateToComboType = {}
+    for k, v in selectedPile.pileReactions.items():
+        translateToComboType[k] = v.typeOfReaction
+
+    momentLimits = []
+    shearLimits = []
+    displacementLimits = []
+    memberName = list(pileModel.Members)[0]
     for combo in pileModel.LoadCombos.keys():
+        simplifiedComboLabel = translateToComboType[combo]
         momentPile = pileModel.Members[memberName].moment_array(Direction="Mz",combo_name=combo, n_points=nPoints)
         shearPile = pileModel.Members[memberName].shear_array(Direction="Fy",combo_name=combo,n_points=nPoints)
         displacementPile = pileModel.Members[memberName].deflection_array(Direction="dy", combo_name=combo, n_points=nPoints)
+        # Calculate Max and Min limits for plotting
+        momentLimits.append(max(momentPile[1]))
+        momentLimits.append(min(momentPile[1]))
+        shearLimits.append(max(shearPile[1]))
+        shearLimits.append(min(shearPile[1]))
+        displacementLimits.append(max(displacementPile[1]))
+        displacementLimits.append(min(displacementPile[1]))
+
         figEfforts.add_trace(
             go.Scatter(
                 x = momentPile[1],
                 y = -momentPile[0],
                 line = {"color": "black"},
                 mode = "lines",
-                name=combo,
+                name=simplifiedComboLabel,
                 line_width = 2,
-                showlegend=True
+                showlegend=True,
+                fill="tonextx"
             ), row=1,col=1
         ) 
         figEfforts.add_trace(
@@ -156,9 +138,10 @@ def plotPileEffortsSolution(pileModel: FEModel3D, edited_dfSoil: pd.DataFrame, n
                 y = -shearPile[0],
                 line = {"color": "red"},
                 mode = "lines",
-                name=combo,
+                name=simplifiedComboLabel,
                 line_width = 2,
-                showlegend=True
+                showlegend=True,
+                fill="tonextx"
             ), row=1,col=2
         ) 
         figEfforts.add_trace(
@@ -167,24 +150,56 @@ def plotPileEffortsSolution(pileModel: FEModel3D, edited_dfSoil: pd.DataFrame, n
                 y = -displacementPile[0],
                 line = {"color": "blue"},
                 mode = "lines",
-                name=combo,
+                name=simplifiedComboLabel,
                 line_width = 2,
                 showlegend=True
             ), row=1,col=3
+        ) 
+    
+    # Add resistance moments into the plot
+    xMrdPos, xMrdNeg = [], []
+    yMrd = []
+    for idx, row in edited_dfVerifications.iterrows():
+        sectionName = row["section"]
+        mRdNmin, mRdNmax = mrd[sectionName]["Nmin"], mrd[sectionName]["Nmax"]
+        mrdPlot = min(mRdNmin,mRdNmax)
+        xMrdPos.append(mrdPlot)
+        xMrdNeg.append(-mrdPlot)
+        if idx == 0:
+            y = 0
+        else:
+            y = -yMrd[idx-1] + edited_dfVerifications["L"][idx-1]
+        
+        yMrd.append(-y)
+
+    xMrdPos.append(mrdPlot)
+    xMrdNeg.append(-mrdPlot)
+    yMrd.append(minLimit)
+    mRdLabel = ["Mrd+", "Mrd-"]
+    for idx, xMrd in enumerate([xMrdPos, xMrdNeg]):
+        figEfforts.add_trace(
+            go.Scatter(
+                x = xMrd,
+                y = yMrd,
+                line = {"color": "red", "dash": "dash"},
+                mode = "lines",
+                name=mRdLabel[idx],
+                line_width = 2,
+                line_shape = "vh",
+                showlegend=True
+            ), row=1,col=1
         ) 
 
     figEfforts.layout.width = 800
     figEfforts.layout.height = 700
     figEfforts.layout.yaxis.title = "Pile height [m]"
     amplification = 1.3
-    figEfforts.update_xaxes(title_text="Moment [kNm]", showgrid =True, range = [amplification*min(momentPile[1]),amplification*max(momentPile[1])], row=1, col=1)
-    figEfforts.update_xaxes(title_text="Shear [kN]", showgrid =True, range = [amplification*min(shearPile[1]),amplification*max(shearPile[1])], row=1, col=2)
-    figEfforts.update_xaxes(title_text="Displacement [mm]", showgrid =True, range = [1000*amplification*min(displacementPile[1]),1000*amplification*max(displacementPile[1])], row=1, col=3)
+    figEfforts.update_xaxes(title_text="Moment [kNm]", showgrid =True, range = [amplification*min(min(momentLimits),min(xMrdNeg)),amplification*max(max(momentLimits),max(xMrdPos))], row=1, col=1)
+    figEfforts.update_xaxes(title_text="Shear [kN]", showgrid =True, range = [amplification*min(shearLimits),amplification*max(shearLimits)], row=1, col=2)
+    figEfforts.update_xaxes(title_text="Displacement [mm]", showgrid =True, range = [1000*amplification*min(displacementLimits),1000*amplification*max(displacementLimits)], row=1, col=3)
     pileLength = -max(momentPile[0])
     for i in range(1,4,1):
         figEfforts.update_yaxes(range=[pileLength,0],row=1,col=i)
-
-    #figEfforts.update_layout(annotations=listOfArrows) # No lo uso de momento
 
     return figEfforts
 
